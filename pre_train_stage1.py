@@ -31,17 +31,15 @@ if OnServer:
     device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
 else:
     import matplotlib;matplotlib.use('TkAgg');
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")  
-    #device=torch.device("cpu");
-    
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")      
+
+#model_stage1=Network2();    
 model_stage1=ETE_stage1(device);
-#model_select=ETE_select(device);
 
 bestloss=1000000
 bestf1=0
 def train(epoch):   
-    model_stage1.train();     
-    #model_select.train();   
+    model_stage1.train();         
     '''
     part1_time=0;    
     part2_time=0;    
@@ -58,22 +56,17 @@ def train(epoch):
             sample['image']=sample['image'].to(device)            
             sample['label']=sample['label'].to(device)                   
         target=sample['label'];
-        optimizer_stage1.zero_grad();                           
-        #optimizer_select.zero_grad();        
-        
-        stage1_label=model_stage1(sample['image'])
-        #theta=model_select(stage1_label)
-        
-        target=torch.softmax(target, dim=1).argmax(dim=1, keepdim=False);  
-        loss=fun.cross_entropy(stage1_label,target)                                
+        optimizer_stage1.zero_grad();                                   
+        stage1_label=model_stage1(sample['image'])        
+        target=torch.softmax(target, dim=1).argmax(dim=1, keepdim=False);    
+        loss=fun.cross_entropy(stage1_label,target)  
+                                        
         '''
         now_time=time.time();
         part1_time+=now_time-prev_time;        
         prev_time=now_time;  
         '''
-        loss.backward()
-                
-        #optimizer_select.step();
+        loss.backward()                
         optimizer_stage1.step();          
         '''
         now_time=time.time();
@@ -91,8 +84,7 @@ def train(epoch):
             print("part3_time=",part3_time);    
             '''
 def test():
-    model_stage1.eval();     
-    #model_select.eval();         
+    model_stage1.eval();         
     global bestloss,bestf1
     test_loss=0    
     hists=[]
@@ -100,8 +92,7 @@ def test():
         if (use_gpu):
             sample['image']=sample['image'].to(device)                                            
             sample['label']=sample['label'].to(device)   
-        stage1_label=model_stage1(sample['image'])
-        #theta=model_select(stage1_label)                
+        stage1_label=model_stage1(sample['image'])                
         target=torch.softmax(sample['label'], dim=1).argmax(dim=1, keepdim=False);               
         if (use_gpu):
             test_loss+=fun.cross_entropy(stage1_label,target,size_average=False).to(device).data
@@ -113,10 +104,6 @@ def test():
         hist = np.bincount(9 * output.reshape([-1]) + target.reshape([-1]),minlength=81).reshape(9, 9)
         hists.append(hist);                              
     hists_sum=np.sum(np.stack(hists, axis=0), axis=0)
-    for i in range(9):
-        for j in range(9):
-            print(hists_sum[i][j],end=' ')
-        print()
     tp=0;
     tpfn=0;
     tpfp=0;
@@ -134,25 +121,23 @@ def test():
     print("STN-iCNN tpfp=",tpfp)
     print("STN-iCNN tpfn=",tpfn)    
     print('\nTest set: {} Cases，F1 Score: {:.4f}\n'.format(
-        len(test_data.get_loader().dataset),f1score))
+        len(test_data.get_loader().dataset),f1score))    
     loss_list.append(test_loss.data.cpu().numpy());
-    f1_list.append(f1score);
+    f1_list.append(f1score);    
     if (UseF1):
         if (f1score>bestf1):
             bestf1=f1score
             print("Best data Stage1 Updata\n");
-            torch.save(model_stage1,"./BestNet_stage1")           
-            #torch.save(model_select,"./BestNet_select")            
+            torch.save(model_stage1,"./preBestNet_stage1")                       
     else:
         if (test_loss<bestloss):
             bestloss=test_loss
             print("Best data Stage1 Updata\n");
-            torch.save(model_stage1,"./BestNet_stage1")           
-            #torch.save(model_select,"./BestNet_select")                      
+            torch.save(model_stage1,"./preBestNet_stage1")                       
 def printoutput():
-    model=torch.load("./BestNet",map_location="cpu")
+    model_stage1=torch.load("./preBestNet_stage1only",map_location="cpu")
     if (use_gpu):
-        model=model.to(device)
+        model_stage1=model_stage1.to(device)    
     unloader = transforms.ToPILImage()
     k=0;
     hists=[]                                 
@@ -161,31 +146,30 @@ def printoutput():
             sample['image']=sample['image'].to(device)            
             sample['label']=sample['label'].to(device)
 
-        stage1_label=model_stage1(sample['image'])
-        #theta=model_select(stage1_label)        
-                
-        output=[];
+        stage1_label=model_stage1(sample['image'])             
+        
         for i in range(batch_size):             
-            k1=k%test_data.get_len();
-            k2=k//test_data.get_len();
-            path=pre_output_path+'/'+test_data.get_namelist()[k1]+'_'+str(k2);   
+            path=pre_output_path+'/'+test_data.get_namelist()[k];   
             if not os.path.exists(path):
                 os.makedirs(path);                
-            image=sample['image'].cpu().clone();                
+            image=sample['image'][i].cpu().clone();                
             image =unloader(image)
-            image.save(path+'/'+test_data.get_namelist()[k1]+'.jpg',quality=100);                            
-                        
-            output.append(stage1_label[i].cpu().clone());
+            image.save(path+'/'+test_data.get_namelist()[k]+'.jpg',quality=100);                            
+            
+            output=stage1_label[i].cpu().clone();
+            output=torch.softmax(output, dim=0).argmax(dim=0, keepdim=False) 
+            output=output.unsqueeze(0);            
+            output=torch.zeros(9,128,128).scatter_(0, output, 255);  
             for j in range(9):                                
-                image3=unloader(np.uint8(output[j].numpy()))
-                image3=TF.resize(img=image3,size=sample[i]["size"],interpolation=Image.NEAREST)                      
-                image3.save(path+'/'+test_data.get_namelist()[k1]+'lbl0'+str(j)+'.jpg',quality=100);            
+                image3=unloader(np.uint8(output[j].numpy()))                
+                image3.save(path+'/'+test_data.get_namelist()[k]+'lbl0'+str(j)+'.jpg',quality=100);            
             k+=1
             if (k>=test_data.get_len()):break        
                     
         target2=torch.softmax(sample['label'], dim=1).argmax(dim=1, keepdim=False);
-        target2=target2.cpu().clone();        
-        output2=output.argmax(dim=1, keepdim=False).cpu().clone();
+        target2=target2.cpu().clone(); 
+        output2=stage1_label.cpu().detach().clone();                 
+        output2=output2.argmax(dim=1, keepdim=False);        
         hist = np.bincount(9 * target2.reshape([-1]) + output2.reshape([-1]),minlength=81).reshape(9, 9)
         hists.append(hist);
         if (k>=test_data.get_len()):break        
@@ -194,24 +178,28 @@ def printoutput():
     tpfn=0;
     tpfp=0;
     f1score=0.0;
+    for i in range(9):
+        for j in range(9):
+            print(hists_sum[i][j],end=' ')
+        print()
     for i in range(1,9):
         tp+=hists_sum[i][i].sum()
         tpfn+=hists_sum[i,:].sum()
         tpfp+=hists_sum[:,i].sum()    
     f1score=2*tp/(tpfn+tpfp)
     print('Printoutput F1 Score: {:.4f}\n'.format(f1score))
-    print("printoutput Finish");    
+    print("printoutput Finish");     
     
 def makeplt(title):
-    loss_list=np.load(loss_image_path+'\\loss_list_STN_iCNN.npy')
+    loss_list=np.load(loss_image_path+'\\loss_list_'+plttitle+'.npy')
     loss_list=loss_list.tolist();
-    f1_list=np.load(loss_image_path+'\\f1_list_STN_iCNN.npy')
+    f1_list=np.load(loss_image_path+'\\f1_list_'+plttitle+'.npy')
     f1_list=f1_list.tolist();
-    x_list=np.load(loss_image_path+'\\x_list_STN_iCNN.npy')
+    x_list=np.load(loss_image_path+'\\x_list_'+plttitle+'.npy')
     x_list=x_list.tolist();
     
     fig = plt.figure()
-    fig.title(title);
+    plt.title(title);
     ax1 = fig.add_subplot(111)
     ax1.plot(x_list, loss_list,'r',label="loss")    
     ax2 = ax1.twinx()
@@ -222,37 +210,33 @@ def makeplt(title):
     ax1.legend(loc=2);
     ax2.legend(loc=4);    
     
-    plt.savefig(loss_image_path+'\\loss_STN_iCNN.jpg');    
+    plt.savefig(loss_image_path+'\\loss_'+plttitle+'.jpg');    
     
 loss_list=[];
 f1_list=[];
 x_list=[];
 print("use_gpu=",use_gpu)
 if (use_gpu):
-    model_stage1=model_stage1.to(device)
-    #model_select=model_select.to(device)
+    model_stage1=model_stage1.to(device)    
   
 optimizer_stage1=optim.Adam(model_stage1.parameters(),lr=0.001) 
-#optimizer_select=optim.Adam(model_select.parameters(),lr=0.001) 
 scheduler_stage1=optim.lr_scheduler.StepLR(optimizer_stage1, step_size=5, gamma=0.5)       
-#scheduler_select=optim.lr_scheduler.StepLR(optimizer_select, step_size=5, gamma=0.5)       
 
-Training=True;
+Training=False;
+plttitle="PreTrain_stage1"
 if Training:
     for epoch in range(epoch_num):
         x_list.append(epoch);
         train(epoch)
-        scheduler_stage1.step()
-        #optimizer_select.step()        
+        scheduler_stage1.step()        
         test()
-    torch.save(model_stage1,"./Netdata_stage1")     
-    #torch.save(model_select,"./Netdata_select")   
+    torch.save(model_stage1,"./preNetdata_stage1only")         
     x_list_stage1=np.array(x_list)
-    np.save(loss_image_path+'\\x_list_stage1.npy',x_list_stage1) 
+    np.save(loss_image_path+'\\x_list_'+plttitle+'.npy',x_list_stage1) 
     f1_list_stage1=np.array(f1_list)
-    np.save(loss_image_path+'\\f1_list_stage1.npy',f1_list_stage1) 
+    np.save(loss_image_path+'\\f1_list_'+plttitle+'.npy',f1_list_stage1) 
     loss_list_stage1=np.array(loss_list)
-    np.save(loss_image_path+'\\loss_list_stage1.npy',loss_list_stage1) 
-    makeplt("PreTrainModel");
-
-printoutput()  
+    np.save(loss_image_path+'\\loss_list_'+plttitle+'.npy',loss_list_stage1) 
+    makeplt(plttitle);
+if (not OnServer):
+    printoutput()  

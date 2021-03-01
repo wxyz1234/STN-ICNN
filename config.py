@@ -12,4 +12,4 @@ batch_size = 4
 epoch_num = 10
 
 OnServer=False
-UseF1=True
+UseF1=False

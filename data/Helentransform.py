@@ -56,13 +56,8 @@ class Resize_label(transforms.Resize):
     
 class ToTensor(transforms.ToTensor):
     def __call__(self, sample):   
-        if (sample.has_key('image_org')):
-            sample['image_org']=TF.to_tensor(sample['image_org'])                    
-        if (sample.has_key('label_org')):
-            for i in range(len(sample['label_org'])):
-                sample['label_org'][i]=TF.to_tensor(sample['label_org'][i])         
-            sample['label_org'][0]+=0.0001        
-            sample['label_org']=torch.cat(tuple(sample['label']),0);#[L,64,64]        
+        if ('image_org' in sample):
+            sample['image_org']=TF.to_tensor(sample['image_org'])                     
         sample['image']=TF.to_tensor(sample['image'])           
         for i in range(len(sample['label'])):
             sample['label'][i]=TF.to_tensor(sample['label'][i])         
@@ -78,16 +73,23 @@ class HorizontalFlip():
         return sample;
     
 class Padding():
-    def __init__(self,size):
+    def __init__(self,size,pdlabel):
         self.size=size;
-    def __call__(self, sample):            
+        self.pdlabel=pdlabel;
+    def __call__(self, sample ):                
+        '''
         tmp=Image.new('RGB', self.size, (0,0,0));        
         tmp.paste(sample['image'],(0,0));        
-        sample['image']=tmp;
+        sample['image']=tmp;        
+        '''
+        tmp=Image.new('RGB', self.size, (0,0,0));        
+        tmp.paste(sample['image_org'],(0,0));        
+        sample['image_org']=tmp;
         #sample['image']=Image.new('RGB', self.size, (0,0,0)).paste(sample['image'],(0,0));        
-        for i in range(len(sample['label'])):            
-            #sample['label'][i]=Image.new('L', self.size, 0).paste(sample['label'][i],(0,0));
-            tmp=Image.new('L', self.size, 0);        
-            tmp.paste(sample['label'][i],(0,0));        
-            sample['label'][i]=tmp;
+        if self.pdlabel:
+            for i in range(len(sample['label'])):            
+                #sample['label'][i]=Image.new('L', self.size, 0).paste(sample['label'][i],(0,0));
+                tmp=Image.new('L', self.size, 0);        
+                tmp.paste(sample['label'][i],(0,0));        
+                sample['label'][i]=tmp;
         return sample;

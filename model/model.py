@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 from torchvision import datasets,transforms
 from torchvision.transforms import functional as TF
 from PIL import Image
@@ -181,9 +182,16 @@ class SelectNetWork(torch.nn.Module):
             nn.Conv2d(6, 6, kernel_size=3, stride=1, padding=1),  # 6 x 2 x 3
             nn.Tanh()
             );
+        self.model_res = torchvision.models.resnet18(pretrained=False)
+        self.model_res.conv1 = nn.Conv2d(9, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        num_ftrs = self.model_res.fc.in_features
+        self.model_res.fc = nn.Linear(num_ftrs, 36)  # 6 x 2 x 3
+    def change_device(self,device):
+        self.device=device;
     def forward(self,x_in): 
-        x_out=self.localize_net(x_in);        
-        activate_tensor = torch.tensor([[[1., 0., 1.],[0., 1., 1.]]], device=self.device,requires_grad=False).repeat((batch_size,6,1,1))
+        #x_out=self.localize_net(x_in);   
+        x_out=self.model_res(x_in).view(-1, 6, 2, 3);        
+        activate_tensor = torch.tensor([[[1., 0., 1.],[0., 1., 1.]]], device=self.device,requires_grad=False).repeat((x_in.size()[0],6,1,1))
         theta = x_out * activate_tensor;
         return theta;
 
@@ -201,8 +209,15 @@ class ETE_select(torch.nn.Module):
         super(ETE_select,self).__init__();                
         self.device=device;        
         self.select=SelectNetWork(128,device);        
-    def forward(self,stage1_label):                    
-        theta=self.select(stage1_label);#[batch_size,6,2,3]            
+    def forward(self,stage1_label,sample_size):                    
+        theta=self.select(stage1_label);#[batch_size,6,2,3]                 
+        for i in range(6):
+            tmp=(theta[:,i,0,2]+1)*1024.0/2;
+            tmp=tmp/128*sample_size[0];
+            theta[:,i,0,2]=-1+2*tmp/1024.0;
+            tmp=(theta[:,i,1,2]+1)*1024.0/2;
+            tmp=tmp/128*sample_size[1];
+            theta[:,i,1,2]=-1+2*tmp/1024.0;
         return theta;
     
 class ETE_stage2(torch.nn.Module):
@@ -219,10 +234,10 @@ class ETE_stage2(torch.nn.Module):
     def forward(self,image_in,theta):           
         image_stage2=[]#[6*[batch_size,3,80,80]]
         for i in range(6):
-            affine_stage2=F.affine_grid(theta[:,i],(batch_size,3,80,80));
+            affine_stage2=F.affine_grid(theta[:,i],(image_in.size()[0],3,80,80));
             image_stage2.append(F.grid_sample(image_in,affine_stage2));      
             
-        stage2_label=[];#[8*[batch_size,80,80]]
+        stage2_label=[];#[6*[batch_size,2/4,80,80]]
         for i in range(6):
             stage2_label.append(self.stage2[i](image_stage2[i]));
         return stage2_label;

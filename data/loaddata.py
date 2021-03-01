@@ -41,7 +41,7 @@ class Augmentation:
         for i in range(self.num):
             self.transforms.append(transforms.Compose([                                
                 transforms.RandomChoice(self.augmentation[i]),  
-                Padding(size=(1024, 1024)),                                                           
+                #Padding(size=(1024, 1024),pdlabel=True),                                                           
             ]));
 
         
@@ -76,7 +76,10 @@ class Helen_Aug(data.Dataset):
         self.mode=mode
         self.stage=stage;
         self.preprocess_data(mode);           
-        self.trans2=transforms.Compose([Resize(size=(128, 128),interpolation=Image.NEAREST),ToTensor()]);              
+        if stage=="stage1":
+            self.trans2=transforms.Compose([Resize(size=(128, 128),interpolation=Image.NEAREST)]);              
+        else:
+            self.trans2=transforms.Compose([Resize_image(size=(128, 128),interpolation=Image.NEAREST)]);              
     def __len__(self):
         return self.num;
     def __getitem__(self,index):   
@@ -110,14 +113,14 @@ class Helen_Aug(data.Dataset):
         labels = [TF.to_pil_image(labels[i])
                   for i in range(labels.shape[0])]    
         '''
-        sample={"image":image,"label":label,"index":index,"size":(image.size)}                
+        sample={"image":image,"label":label,"index":index,"size":image.size}                
         sample=self.image_trans(sample);           
-        sample['image_org']=sample['image'].copy();
-        if (self.stage!='stage1'):
-            sample['label_org']=sample['label'].copy();            
-        sample=self.trans2(sample);
+        sample['image_org']=sample['image'].copy();                 
+        sample=self.trans2(sample); 
+        paddtrans=transforms.Compose([Padding(size=(1024, 1024),pdlabel=(self.stage!="stage1")),ToTensor()]);        
+        sample=paddtrans(sample);
         sample['label'][0] = torch.sum(sample['label'][1:9], dim=0, keepdim=True)
-        sample['label'][0]  = 1 - sample['label'][0]   
+        sample['label'][0]  = 1 - sample['label'][0]  
         #sample['label_org'][0] = torch.sum(sample['label_org'][1:9], dim=0, keepdim=True)
         #sample['label_org'][0]  = 1 - sample['label_org'][0]                                                 
         '''
