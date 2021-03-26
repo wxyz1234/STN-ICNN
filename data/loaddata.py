@@ -18,7 +18,7 @@ class Augmentation:
     def __init__(self,mode):
         degree = 15
         translate_range = (0.1,0.1);
-        scale_range = (0.9, 1.2);           
+        scale_range = (0.9, 1.2);               
         self.name="Augmentation"             
         self.augmentation=[];
         self.augmentation.append([DoNothing()]);
@@ -28,8 +28,8 @@ class Augmentation:
                                         transforms.Compose([GaussianNoise(),RandomAffine(degrees=degree, translate=translate_range,scale=scale_range)])]);
                     
             self.augmentation.append([RandomAffine(degrees=degree, translate=(0,0), scale=(1,1)),
-                                        RandomAffine(degrees=0, translate=translate_range, scale=(1,1)),
-                                        RandomAffine(degrees=0, translate=(0,0), scale=scale_range)]);
+                                        RandomAffine(degrees=0, translate=(0.3, 0.3), scale=(1,1)),
+                                        RandomAffine(degrees=0, translate=(0,0), scale=(0.8, 1.5))]);
       
             self.augmentation.append([RandomAffine(degrees=0, translate=translate_range, scale=scale_range),
                                         RandomAffine(degrees=degree, translate=(0,0), scale=scale_range),
@@ -77,7 +77,7 @@ class Helen_Aug(data.Dataset):
         self.stage=stage;
         self.preprocess_data(mode);           
         if stage=="stage1":
-            self.trans2=transforms.Compose([Resize(size=(128, 128),interpolation=Image.NEAREST)]);              
+            self.trans2=transforms.Compose([Resize(size=(128, 128),interpolation=Image.NEAREST)]);                          
         else:
             self.trans2=transforms.Compose([Resize_image(size=(128, 128),interpolation=Image.NEAREST)]);              
     def __len__(self):
@@ -103,24 +103,49 @@ class Helen_Aug(data.Dataset):
         now_time=time.time();
         part1_time+=now_time-prev_time;        
         prev_time=now_time;     
+        '''        
         '''
-        '''   
         for i in range(len(label)):
             label[i]=np.array(label[i]);
         bg=255 - np.sum(label, axis=0, keepdims=True)
-        labels = np.concatenate([bg, label], axis=0)
-        labels = np.uint8(labels)          
-        labels = [TF.to_pil_image(labels[i])
-                  for i in range(labels.shape[0])]    
+        label = np.concatenate([bg, label], axis=0)
+        label = np.uint8(label)
+        label = [TF.to_pil_image(label[i])
+                  for i in range(label.shape[0])]                    
         '''
-        sample={"image":image,"label":label,"index":index,"size":image.size}                
+        sample={"image":image,"label":label,"index":index,"size":image.size}                    
         sample=self.image_trans(sample);           
-        sample['image_org']=sample['image'].copy();                 
-        sample=self.trans2(sample); 
-        paddtrans=transforms.Compose([Padding(size=(1024, 1024),pdlabel=(self.stage!="stage1")),ToTensor()]);        
-        sample=paddtrans(sample);
-        sample['label'][0] = torch.sum(sample['label'][1:9], dim=0, keepdim=True)
-        sample['label'][0]  = 1 - sample['label'][0]  
+        sample['image_org']=sample['image'].copy();        
+        '''
+        sample['label_org']=[];
+        for i in range(len(sample['label'])):        
+            sample['label_org'].append(sample['label'][i]);                    
+        '''
+        sample=self.trans2(sample);        
+        if self.stage!="stage1":
+            lbsize=1024;
+        else:
+            lbsize=128;
+        #sample['label'][0] = torch.sum(sample['label'][1:9], dim=0, keepdim=True);
+        #sample['label'][0]  = 1 - sample['label'][0];                  
+        
+        paddtrans=transforms.Compose([Padding(size=(1024, 1024),pdlabel=(self.stage!="stage1")),ToTensor()]);                
+        sample=paddtrans(sample);        
+        sample['label']=torch.softmax(sample['label'],dim=0);
+        sample['label'][0] = torch.sum(sample['label'][1:9], dim=0, keepdim=True);
+        sample['label'][0]  = 1 - sample['label'][0]; 
+        '''
+        if (path=="11564757_2"):
+            for i in range(9):
+                print(sample['label'][i][129][209],end=' ')
+            input("wait")
+        '''
+            
+        lnum=len(sample['label']);
+        sample['label']=torch.argmax(sample['label'],dim=0,keepdim=False);#[batch_size,1024,1024]                
+        sample['label']=sample['label'].unsqueeze(dim=0);#[batch_size,1,1024,1024]        
+        sample['label']=torch.zeros(lnum,lbsize,lbsize).scatter_(0, sample['label'], 255);#[batch_size,L,1024,1024]         
+        
         #sample['label_org'][0] = torch.sum(sample['label_org'][1:9], dim=0, keepdim=True)
         #sample['label_org'][0]  = 1 - sample['label_org'][0]                                                 
         '''

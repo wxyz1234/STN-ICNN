@@ -3,10 +3,12 @@
 __pycache__/
 data/*/
 cache/
+Result/
 训练结果1备份/
 *.onnx
 *.log
 后台运行.txt
+check.txt
 
 #生成结果
 pre_train.log

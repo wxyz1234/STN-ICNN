@@ -18,7 +18,7 @@ class ToPILImage:
               for i in range(sample['label'].shape[0])]
         return sample
 class GaussianNoise:
-    def __call__(self, sample):        
+    def __call__(self, sample):  
         sample['image'] = np.array(sample['image'], np.uint8)
         sample['image']=random_noise(sample['image'])
         sample['image'] = TF.to_pil_image(np.uint8(255 * sample['image']))  
@@ -57,7 +57,10 @@ class Resize_label(transforms.Resize):
 class ToTensor(transforms.ToTensor):
     def __call__(self, sample):   
         if ('image_org' in sample):
-            sample['image_org']=TF.to_tensor(sample['image_org'])                     
+            sample['image_org']=TF.to_tensor(sample['image_org'])   
+        if ('label_org' in sample):
+            for i in range(len(sample['label_org'])):
+                sample['label_org'][i]=TF.to_tensor(sample['label_org'][i])                    
         sample['image']=TF.to_tensor(sample['image'])           
         for i in range(len(sample['label'])):
             sample['label'][i]=TF.to_tensor(sample['label'][i])         
@@ -82,9 +85,15 @@ class Padding():
         tmp.paste(sample['image'],(0,0));        
         sample['image']=tmp;        
         '''
-        tmp=Image.new('RGB', self.size, (0,0,0));        
-        tmp.paste(sample['image_org'],(0,0));        
-        sample['image_org']=tmp;
+        if ('image_org' in sample):
+            tmp=Image.new('RGB', self.size, (0,0,0));        
+            tmp.paste(sample['image_org'],(0,0));     
+            sample['image_org']=tmp;
+        if ('label_org' in sample):
+            for i in range(len(sample['label_org'])):
+                tmp=Image.new('L', self.size, 0);                
+                tmp.paste(sample['label_org'][i],(0,0));     
+                sample['label_org'][i]=tmp;
         #sample['image']=Image.new('RGB', self.size, (0,0,0)).paste(sample['image'],(0,0));        
         if self.pdlabel:
             for i in range(len(sample['label'])):            

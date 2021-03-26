@@ -76,22 +76,37 @@ def train(epoch):
         
         stage1_label=model_stage1(sample['image'])
         theta=model_select(stage1_label,sample['size'])
-                
+        '''        
         theta_label = torch.zeros((sample['image'].size()[0],6,2,3),device=device,requires_grad=False); #[batch_size,6,2,3]    
         W=1024.0;
         H=1024.0;
-        cens = torch.floor(calc_centroid(sample['label'])) #[batch_size,9,2]         
+        cens = torch.floor(calc_centroid(sample['label'])) #[batch_size,9,2]  
         for i in range(sample['image'].size()[0]):    
             for j in range(9):
-                cens[i,j,0]=cens[i,j,0]/128*sample['size'][0][i]
-                cens[i,j,1]=cens[i,j,1]/128*sample['size'][1][i]        
+                cens[i,j,0]=cens[i,j,0]*(sample['size'][0][i]-1.0)/(128.0-1.0)
+                cens[i,j,1]=cens[i,j,1]*(sample['size'][1][i]-1.0)/(128.0-1.0)               
         points = torch.floor(torch.cat([cens[:, 1:6],cens[:, 6:9].mean(dim=1, keepdim=True)],dim=1)) #[batch_size,6,2]
         for i in range(6):
-            theta_label[:,i,0,0]=80.0/W;
-            theta_label[:,i,1,1]=80.0/H;
-            theta_label[:,i,0,2]=-1+2*points[:,i,0]/W;
-            theta_label[:,i,1,2]=-1+2*points[:,i,1]/H;    
-        
+            theta_label[:,i,0,0]=(81.0-1.0)/(W-1.0);
+            theta_label[:,i,1,1]=(81.0-1.0)/(H-1.0);
+            theta_label[:,i,0,2]=-1+2*(points[:,i,0]+0)/(W-1.0);
+            theta_label[:,i,1,2]=-1+2*(points[:,i,1]+0)/(H-1.0); 
+        '''
+        theta_label = torch.zeros((sample['image'].size()[0],6,2,3),device=device,requires_grad=False); #[batch_size,6,2,3]    
+        W=1024.0;
+        H=1024.0;
+        cens = torch.floor(calc_centroid(sample['label'])) #[batch_size,9,2]  
+        for i in range(sample['image'].size()[0]):    
+            for j in range(9):
+                cens[i,j,0]=cens[i,j,0]*sample['size'][0][i]/128.0
+                cens[i,j,1]=cens[i,j,1]*sample['size'][1][i]/128.0               
+        points = torch.floor(torch.cat([cens[:, 1:6],cens[:, 6:9].mean(dim=1, keepdim=True)],dim=1)) #[batch_size,6,2]
+        for i in range(6):
+            theta_label[:,i,0,0]=81.0/W;
+            theta_label[:,i,1,1]=81.0/H;
+            theta_label[:,i,0,2]=-1+2*(points[:,i,0]+1.0)/W;
+            theta_label[:,i,1,2]=-1+2*(points[:,i,1]+1.0)/H; 
+            
         loss=fun.smooth_l1_loss(theta, theta_label); 
         '''
         now_time=time.time();
@@ -130,22 +145,38 @@ def test():
             sample['size'][1]=sample['size'][1].to(device);
         stage1_label=model_stage1(sample['image'])        
         theta=model_select(stage1_label,sample['size'])       
-         
+        ''' 
         theta_label = torch.zeros((sample['image'].size()[0],6,2,3),device=device,requires_grad=False); #[batch_size,6,2,3]    
         W=1024.0;
         H=1024.0;
-        cens = torch.floor(calc_centroid(sample['label'])) #[batch_size,9,2]             
+        cens = torch.floor(calc_centroid(sample['label'])) #[batch_size,9,2]
         for i in range(sample['image'].size()[0]):    
             for j in range(9):
-                cens[i,j,0]=cens[i,j,0]/128*sample['size'][0][i]
-                cens[i,j,1]=cens[i,j,1]/128*sample['size'][1][i]        
+                cens[i,j,0]=cens[i,j,0]*(sample['size'][0][i]-1.0)/(128.0-1.0)
+                cens[i,j,1]=cens[i,j,1]*(sample['size'][1][i]-1.0)/(128.0-1.0)
         points = torch.floor(torch.cat([cens[:, 1:6],cens[:, 6:9].mean(dim=1, keepdim=True)],dim=1)) #[batch_size,6,2]
         for i in range(6):
-            theta_label[:,i,0,0]=80.0/W;
-            theta_label[:,i,1,1]=80.0/H;
-            theta_label[:,i,0,2]=-1+2*points[:,i,0]/W;
-            theta_label[:,i,1,2]=-1+2*points[:,i,1]/H;   
+            theta_label[:,i,0,0]=(81.0-1.0)/(W-1.0);
+            theta_label[:,i,1,1]=(81.0-1.0)/(H-1.0);
+            theta_label[:,i,0,2]=-1+2*(points[:,i,0]+0)/(W-1.0);
+            theta_label[:,i,1,2]=-1+2*(points[:,i,1]+0)/(H-1.0);   
+        '''
+        theta_label = torch.zeros((sample['image'].size()[0],6,2,3),device=device,requires_grad=False); #[batch_size,6,2,3]    
+        W=1024.0;
+        H=1024.0;
+        cens = torch.floor(calc_centroid(sample['label'])) #[batch_size,9,2]  
+        for i in range(sample['image'].size()[0]):    
+            for j in range(9):
+                cens[i,j,0]=cens[i,j,0]*sample['size'][0][i]/128.0
+                cens[i,j,1]=cens[i,j,1]*sample['size'][1][i]/128.0               
+        points = torch.floor(torch.cat([cens[:, 1:6],cens[:, 6:9].mean(dim=1, keepdim=True)],dim=1)) #[batch_size,6,2]
+        for i in range(6):
+            theta_label[:,i,0,0]=81.0/W;
+            theta_label[:,i,1,1]=81.0/H;
+            theta_label[:,i,0,2]=-1+2*(points[:,i,0]+1.0)/W;
+            theta_label[:,i,1,2]=-1+2*(points[:,i,1]+1.0)/H; 
             
+        loss=fun.smooth_l1_loss(theta, theta_label); 
         test_loss+=fun.smooth_l1_loss(theta, theta_label).data;        
     test_loss/=len(val_data.get_loader().dataset)    
     print('\nTest set: {} Cases，Average loss: {:.4f}\n'.format(
@@ -174,22 +205,60 @@ def printoutput():
 
         stage1_label=model_stage1(sample['image'])
         theta=model_select(stage1_label,sample['size'])        
-        
+        '''
         theta_label = torch.zeros((sample['image'].size()[0],6,2,3),device=device,requires_grad=False); #[batch_size,6,2,3]    
         W=1024.0;
         H=1024.0;
         cens = torch.floor(calc_centroid(sample['label'])) #[batch_size,9,2]                   
         for i in range(sample['image'].size()[0]):    
             for j in range(9):
-                cens[i,j,0]=cens[i,j,0]/128*sample['size'][0][i]
-                cens[i,j,1]=cens[i,j,1]/128*sample['size'][1][i]        
+                cens[i,j,0]=cens[i,j,0]*sample['size'][0][i]/(128.0-1.0)
+                cens[i,j,1]=cens[i,j,1]*sample['size'][1][i]/(128.0-1.0)
         points = torch.floor(torch.cat([cens[:, 1:6],cens[:, 6:9].mean(dim=1, keepdim=True)],dim=1)) #[batch_size,6,2]
         for i in range(6):
-            theta_label[:,i,0,0]=80.0/W;
-            theta_label[:,i,1,1]=80.0/H;
-            theta_label[:,i,0,2]=-1+2*points[:,i,0]/W;
-            theta_label[:,i,1,2]=-1+2*points[:,i,1]/H;   
-        
+            theta_label[:,i,0,0]=(81.0-1.0)/(W-1.0);
+            theta_label[:,i,1,1]=(81.0-1.0)/(H-1.0);
+            theta_label[:,i,0,2]=-1+2*(points[:,i,0]+0)/(W-1.0);
+            theta_label[:,i,1,2]=-1+2*(points[:,i,1]+0)/(H-1.0);  
+        '''
+        theta_label = torch.zeros((sample['image'].size()[0],6,2,3),device=device,requires_grad=False); #[batch_size,6,2,3]            
+        W=1024.0;
+        H=1024.0;
+        '''        
+        f=open("1.txt",mode='w');
+        print(sample['label'].size())
+        for k in range(9):
+            for i in range(sample['label'][0][k].size()[0]):
+                for j in range(sample['label'][0][k].size()[1]):
+                    print(float(sample['label'][0][k][i][j].data),end=' ',file=f);
+                print(file=f);
+        f.close();
+        for i in range(batch_size):
+            for j in range(9):
+                image=sample['label'][i][j].cpu().clone();                                 
+                image=transforms.ToPILImage()(image).convert('L')
+                plt.imshow(image);
+                plt.show(block=True);   
+        input("check")
+        '''
+        cens=torch.floor(calc_centroid(sample['label']))        
+        for i in range(sample['image'].size()[0]):    
+            for j in range(9):
+                cens[i,j,0]=cens[i,j,0]*sample['size'][0][i]/128.0
+                cens[i,j,1]=cens[i,j,1]*sample['size'][1][i]/128.0                       
+        points = torch.floor(torch.cat([cens[:, 1:6],cens[:, 6:9].mean(dim=1, keepdim=True)],dim=1)) #[batch_size,6,2]
+        for i in range(6):
+            theta_label[:,i,0,0]=81.0/W;
+            theta_label[:,i,1,1]=81.0/H;
+            theta_label[:,i,0,2]=-1+2*(points[:,i,0]+1.0)/W;
+            theta_label[:,i,1,2]=-1+2*(points[:,i,1]+1.0)/H;          
+            
+        loss=fun.smooth_l1_loss(theta, theta_label); 
+        '''
+        print(theta);
+        print(theta_label);
+        input("check")
+        '''
         output=[];
         for i in range(sample['image'].size()[0]):             
             path=pre_output_path+'/'+test_data.get_namelist()[k];   
@@ -212,10 +281,10 @@ def printoutput():
             for j in range(9):                                
                 image3=unloader(np.uint8(output[i][j].numpy()))                
                 image3.save(path+'/'+'stage1_'+test_data.get_namelist()[k]+'lbl0'+str(j)+'.jpg',quality=100);         
-            image=image.to(device).unsqueeze(0);
-            for j in range(6):                                
-                affine_stage2=F.affine_grid(theta[i,j].unsqueeze(0),(1,3,80,80));                                
-                image3=F.grid_sample(image,affine_stage2);                 
+            image=image.to(device).unsqueeze(0);            
+            for j in range(6):   
+                affine_stage2=F.affine_grid(theta[i,j].unsqueeze(0),(1,3,81,81),align_corners=True);                                
+                image3=F.grid_sample(image,affine_stage2,align_corners=True);   
                 image3=unloader(image3[0].cpu());
                 image3.save(path+'/'+'select_'+test_data.get_namelist()[k]+'lbl0'+str(j)+'.jpg',quality=100);            
             k+=1
@@ -252,7 +321,7 @@ scheduler_stage1=optim.lr_scheduler.StepLR(optimizer_stage1, step_size=5, gamma=
 scheduler_select=optim.lr_scheduler.StepLR(optimizer_select, step_size=5, gamma=0.5)       
 
 plttitle="PreTrain_stage1select"
-Training=False;
+Training=True;
 if Training:
     for epoch in range(epoch_num):
         x_list.append(epoch);

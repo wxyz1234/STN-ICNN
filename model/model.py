@@ -12,23 +12,39 @@ import time,datetime
 label_channel=[2,2,2,2,2,4];
 label_list=[[0,1],[0,2],[0,3],[0,4],[0,5],[0,6,7,8]];
 
-def make_inverse(device,theta):            
+class Interpolate(nn.Module):
+    def __init__(self, size, mode):
+        super(Interpolate, self).__init__()
+        self.interp = nn.functional.interpolate
+        self.size = size
+        self.mode = mode
+
+    def forward(self, x):
+        x = self.interp(x, size=self.size, mode=self.mode)
+        return x
+
+def make_inverse(device,theta):                
     ones = torch.tensor([[0.,0.,1.]]).repeat(batch_size,6,1,1).to(device)
-    theta = torch.cat([theta, ones], dim=2).to(device)        
-    theta = torch.inverse(theta)
-    theta = theta[:,:,0:2];
+    theta = torch.cat([theta, ones], dim=2).to(device)            
+    theta = torch.inverse(theta)    
+    theta = theta[:,:,0:2];    
+    theta[:,:,0,2]+=2/81;
+    theta[:,:,1,2]+=2/81;
     return theta;
 
 class iCNN_Node(torch.nn.Module):    
-    def __init__(self,in_channel,out_channel,dorelu=True):
+    def __init__(self,in_channel,out_channel,in_size,dorelu=True):
         super(iCNN_Node, self).__init__();        
-        self.upsample=nn.UpsamplingNearest2d(scale_factor=2);
-        self.downsample=nn.MaxPool2d(2);    
+        #self.upsample=nn.UpsamplingNearest2d(scale_factor=2);
+        #self.downsample=nn.MaxPool2d(2);  
+        self.upsample=Interpolate(size=(in_size,in_size),mode='nearest');        
+        self.downsample=nn.MaxPool2d(kernel_size=3, stride=2, padding=1);
+        
         self.in_channel=in_channel;
         self.out_channel=out_channel;
         self.Conv=nn.Conv2d(in_channels=self.in_channel,out_channels=self.out_channel,kernel_size=5,padding=2);
         self.bn=nn.BatchNorm2d(out_channel);  
-        self.dorelu=dorelu;
+        self.dorelu=dorelu;        
     def set_conv(self,kernel_size,stride,padding):
         self.Conv=nn.Conv2d(in_channels=self.in_channel,out_channels=self.out_channel,kernel_size=kernel_size,stride=stride,padding=padding);
     def forward(self,x,x_pre=None,x_post=None):        
@@ -37,7 +53,7 @@ class iCNN_Node(torch.nn.Module):
             x_pre=self.downsample(x_pre);
             x_list.append(x_pre);
         x_list.append(x);
-        if (x_post!=None):
+        if (x_post!=None):            
             x_post=self.upsample(x_post);
             x_list.append(x_post);        
         x_in=torch.cat(x_list,dim=1);             
@@ -46,13 +62,14 @@ class iCNN_Node(torch.nn.Module):
             x_out=F.relu(self.bn(x_out));        
         return x_out;
 class iCNN_Cell(torch.nn.Module):    
-    def __init__(self):
+    def __init__(self,in_size_list):
         super(iCNN_Cell, self).__init__()
+        self.in_size_list=in_size_list;
         self.Node_list=nn.ModuleList([]);
-        self.Node_list.append(iCNN_Node(24,8));
-        self.Node_list.append(iCNN_Node(48,16));
-        self.Node_list.append(iCNN_Node(72,24));
-        self.Node_list.append(iCNN_Node(56,32));
+        self.Node_list.append(iCNN_Node(24,8,in_size_list[0]));
+        self.Node_list.append(iCNN_Node(48,16,in_size_list[1]));
+        self.Node_list.append(iCNN_Node(72,24,in_size_list[2]));
+        self.Node_list.append(iCNN_Node(56,32,in_size_list[3]));
     def forward(self,in_channels):          
         out_channels=[];
         out_channels.append(self.Node_list[0].forward(in_channels[0],None,in_channels[1]));
@@ -64,29 +81,37 @@ class iCNN_FaceModel(torch.nn.Module):
     def __init__(self,in_size,out_num):
         super(iCNN_FaceModel, self).__init__();
         self.in_size=in_size;
+        self.in_size_list=[in_size];
+        j=in_size;
+        for i in range(3):
+            j=j//2+(j&1);
+            self.in_size_list.append(j);
         self.out_num=out_num;
-        self.Cell_list=nn.ModuleList([iCNN_Cell() for _ in range(3)]);
+        self.Cell_list=nn.ModuleList([iCNN_Cell(self.in_size_list) for _ in range(3)]);
         self.in_Node_list=nn.ModuleList([]);
         self.bninput=nn.BatchNorm2d(3);
-        self.downsample_image=nn.AvgPool2d(2);  
+        #self.downsample_image=nn.AvgPool2d(2);  
+        self.downsample_image=nn.MaxPool2d(kernel_size=3, stride=2, padding=1);
+        
         self.Node_list_st=nn.ModuleList([]);
-        self.Node_list_st.append(iCNN_Node(3,8));
-        self.Node_list_st.append(iCNN_Node(3,16));
-        self.Node_list_st.append(iCNN_Node(3,24));
-        self.Node_list_st.append(iCNN_Node(3,32));
+        self.Node_list_st.append(iCNN_Node(3,8,self.in_size_list[0]));
+        self.Node_list_st.append(iCNN_Node(3,16,self.in_size_list[1]));
+        self.Node_list_st.append(iCNN_Node(3,24,self.in_size_list[2]));
+        self.Node_list_st.append(iCNN_Node(3,32,self.in_size_list[3]));
         self.Node_list_ed=nn.ModuleList([]);    
-        self.Node_list_ed.append(iCNN_Node(24,8+2*self.out_num));
-        self.Node_list_ed.append(iCNN_Node(40,16));
-        self.Node_list_ed.append(iCNN_Node(56,24));        
-        self.Node_ed=iCNN_Node(8+2*self.out_num,self.out_num,False);
+        self.Node_list_ed.append(iCNN_Node(24,8+2*self.out_num,self.in_size_list[0]));
+        self.Node_list_ed.append(iCNN_Node(40,16,self.in_size_list[1]));
+        self.Node_list_ed.append(iCNN_Node(56,24,self.in_size_list[2]));        
+        self.Node_ed=iCNN_Node(8+2*self.out_num,self.out_num,self.in_size_list[0],dorelu=False);
     def forward(self,in_image):           
         x_list=[];    
         in_image=self.bninput(in_image);
         for i in range(4):
             x_list.append(in_image);
-            in_image=self.downsample_image(in_image);        
+            in_image=self.downsample_image(in_image);              
+            assert x_list[i].size()[2]==self.in_size_list[i],print(x_list[i].size()[2],' ',self.in_size_list[i]);
         for i in range(4):
-            x_list[i]=self.Node_list_st[i](x_list[i]);        
+            x_list[i]=self.Node_list_st[i](x_list[i]);          
         for i in range(3):
             x_list=self.Cell_list[i](x_list);        
         for i in range(2,-1,-1):
@@ -209,15 +234,18 @@ class ETE_select(torch.nn.Module):
         super(ETE_select,self).__init__();                
         self.device=device;        
         self.select=SelectNetWork(128,device);        
-    def forward(self,stage1_label,sample_size):                    
-        theta=self.select(stage1_label);#[batch_size,6,2,3]                 
+    def forward(self,stage1_label,sample_size):       
+        stage1_label=torch.softmax(stage1_label,dim=1);
+        theta=self.select(stage1_label);#[batch_size,6,2,3]   
+        '''                 
         for i in range(6):
-            tmp=(theta[:,i,0,2]+1)*1024.0/2;
-            tmp=tmp/128*sample_size[0];
-            theta[:,i,0,2]=-1+2*tmp/1024.0;
-            tmp=(theta[:,i,1,2]+1)*1024.0/2;
-            tmp=tmp/128*sample_size[1];
-            theta[:,i,1,2]=-1+2*tmp/1024.0;
+            tmp=(theta[:,i,0,2]+1)/2;
+            tmp=tmp*(sample_size[0]-0.0);
+            theta[:,i,0,2]=-1+2*tmp/(1024.0-0.0);
+            tmp=(theta[:,i,1,2]+1)/2;
+            tmp=tmp*(sample_size[1]-0.0);
+            theta[:,i,1,2]=-1+2*tmp/(1024.0-0.0);        
+        '''
         return theta;
     
 class ETE_stage2(torch.nn.Module):
@@ -225,23 +253,31 @@ class ETE_stage2(torch.nn.Module):
         super(ETE_stage2,self).__init__();                
         self.device=device;
         self.stage2=nn.ModuleList([]);
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,4));                 
+        self.stage2.append(iCNN_FaceModel(81,2));
+        #self.stage2.append(iCNN_FaceModel(81,2));
+        self.stage2.append(iCNN_FaceModel(81,2));
+        #self.stage2.append(iCNN_FaceModel(81,2));
+        self.stage2.append(iCNN_FaceModel(81,2));
+        self.stage2.append(iCNN_FaceModel(81,4));                 
     def forward(self,image_in,theta):           
-        image_stage2=[]#[6*[batch_size,3,80,80]]
+        image_stage2=[]#[6*[batch_size,3,81,81]]
         for i in range(6):
-            affine_stage2=F.affine_grid(theta[:,i],(image_in.size()[0],3,80,80));
-            image_stage2.append(F.grid_sample(image_in,affine_stage2));      
+            affine_stage2=F.affine_grid(theta[:,i],(image_in.size()[0],3,81,81),align_corners=True);
+            image_stage2.append(F.grid_sample(image_in,affine_stage2,align_corners=True));      
             
-        stage2_label=[];#[6*[batch_size,2/4,80,80]]
+        stage2_label=[];#[6*[batch_size,2/4,81,81]]
+        '''
         for i in range(6):
             stage2_label.append(self.stage2[i](image_stage2[i]));
+        '''
+        stage2_label.append(self.stage2[0](image_stage2[0]));
+        stage2_label.append(torch.flip(self.stage2[0](torch.flip(image_stage2[1],[3])),[3]));
+        stage2_label.append(self.stage2[1](image_stage2[2]));
+        stage2_label.append(torch.flip(self.stage2[1](torch.flip(image_stage2[3],[3])),[3]));
+        stage2_label.append(self.stage2[2](image_stage2[4]));
+        stage2_label.append(self.stage2[3](image_stage2[5]));
+        
         return stage2_label;
-
 class EndtoEndModel(torch.nn.Module):
     def __init__(self,device):
         super(EndtoEndModel,self).__init__();                
@@ -249,12 +285,12 @@ class EndtoEndModel(torch.nn.Module):
         self.stage1=iCNN_FaceModel(128,9);
         self.select=SelectNetWork(128,device);
         self.stage2=nn.ModuleList([]);
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,2));
-        self.stage2.append(iCNN_FaceModel(80,4));                 
+        self.stage2.append(iCNN_FaceModel(81,2));
+        self.stage2.append(iCNN_FaceModel(81,2));
+        self.stage2.append(iCNN_FaceModel(81,2));
+        self.stage2.append(iCNN_FaceModel(81,2));
+        self.stage2.append(iCNN_FaceModel(81,2));
+        self.stage2.append(iCNN_FaceModel(81,4));                 
         
     def forward(self,image_in,image_org):           
         '''
@@ -271,12 +307,12 @@ class EndtoEndModel(torch.nn.Module):
         part1_time+=now_time-prev_time;        
         prev_time=now_time;                       
         '''
-        image_stage2=[]#[6*[batch_size,3,80,80]]
+        image_stage2=[]#[6*[batch_size,3,81,81]]
         for i in range(6):
-            affine_stage2=F.affine_grid(theta[:,i],(batch_size,3,80,80));
+            affine_stage2=F.affine_grid(theta[:,i],(batch_size,3,81,81));
             image_stage2.append(F.grid_sample(image_org,affine_stage2));      
             
-        stage2_label=[];#[8*[batch_size,80,80]]
+        stage2_label=[];#[8*[batch_size,81,81]]
         for i in range(5):
             stage2_label.append(self.stage2[i](image_stage2[i])[:,1].unsqueeze(1));        
         mouth_label=self.stage2[5](image_stage2[5]);
