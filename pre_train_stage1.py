@@ -19,8 +19,9 @@ import time,datetime
 
 from config import batch_size,pre_output_path,epoch_num,loss_image_path,OnServer,UseF1
 from model.model import EndtoEndModel,ETE_stage1,ETE_select,ETE_stage2,label_channel,label_list,make_inverse
-from model.model_ICNN import Network2
 from data.loaddata import data_loader_Aug
+import warnings
+warnings.filterwarnings("ignore")
 
 train_data=data_loader_Aug("train",batch_size,"stage1");
 test_data=data_loader_Aug("test",batch_size,"stage1");
@@ -28,7 +29,7 @@ val_data=data_loader_Aug("val",batch_size,"stage1");
 
 use_gpu = torch.cuda.is_available()
 if OnServer:
-    device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
 else:
     import matplotlib;matplotlib.use('TkAgg');
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")      
@@ -222,7 +223,8 @@ if (use_gpu):
 optimizer_stage1=optim.Adam(model_stage1.parameters(),lr=0.001) 
 scheduler_stage1=optim.lr_scheduler.StepLR(optimizer_stage1, step_size=5, gamma=0.5)       
 
-Training=False;
+Training=OnServer;
+#Training=True;
 plttitle="PreTrain_stage1"
 if Training:
     for epoch in range(epoch_num):
@@ -230,7 +232,7 @@ if Training:
         train(epoch)
         scheduler_stage1.step()        
         test()
-    torch.save(model_stage1,"./preNetdata_stage1only")         
+    torch.save(model_stage1,"./preNetdata_stage1_only")         
     x_list_stage1=np.array(x_list)
     np.save(loss_image_path+'\\x_list_'+plttitle+'.npy',x_list_stage1) 
     f1_list_stage1=np.array(f1_list)
@@ -240,3 +242,4 @@ if Training:
     makeplt(plttitle);
 if (not OnServer):
     printoutput()  
+print("FINISH!");

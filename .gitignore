@@ -17,9 +17,13 @@ main_stage.log
 preBestNet_select
 preBestNet_stage1
 preBestNet_stage1only
+preBestNet_selectonly
+preBestNet_stage2
 preNetdata_select
 preNetdata_stage1
 preNetdata_stage1only
+preNetdata_selectonly
+preNetdata_stage2
 BestNet_select
 BestNet_stage1
 BestNet_stage2

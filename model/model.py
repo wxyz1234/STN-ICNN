@@ -8,9 +8,44 @@ from PIL import Image
 from config import batch_size
 from data.Helentransform import GaussianNoise,RandomAffine,Resize,ToTensor,ToPILImage,HorizontalFlip,DoNothing
 import time,datetime
+import numpy as np
 
 label_channel=[2,2,2,2,2,4];
 label_list=[[0,1],[0,2],[0,3],[0,4],[0,5],[0,6,7,8]];
+'''
+def calc_centroid(tensor):#input [batch_size,9,128,128]->output [batch_size,9,2]
+    input=tensor.float()+1e-10;
+    n, l, h, w = input.shape    
+    index_y=torch.from_numpy(np.arange(h)).float().to(tensor.device);
+    index_x=torch.from_numpy(np.arange(w)).float().to(tensor.device);    
+    center_x=input.sum(2)*index_x.view(1,1,-1);
+    center_x=center_x.sum(2,keepdim=True)/input.sum([2, 3]).view(n, l, 1);
+    center_y=input.sum(3)*index_y.view(1,1,-1);
+    center_y=center_y.sum(2,keepdim=True)/input.sum([2, 3]).view(n, l, 1);
+    output = torch.cat([center_x, center_y], 2)
+    return output;
+'''
+def calc_centroid(tensor):#input [batch_size,9,128,128]->output [batch_size,9,2]
+    input=tensor.float()+1e-10;
+    n, l, h, w = input.shape    
+    index_y=torch.from_numpy(np.arange(h)).float().to(tensor.device);
+    index_x=torch.from_numpy(np.arange(w)).float().to(tensor.device);    
+    center_x=input.sum(2)*index_x.view(1,1,-1);
+    center_x=center_x.sum(2,keepdim=True);
+    center_xchu=input.sum([2, 3]).view(n, l, 1);
+    center_y=input.sum(3)*index_y.view(1,1,-1);
+    center_y=center_y.sum(2,keepdim=True);
+    center_ychu=input.sum([2, 3]).view(n, l, 1);                    
+    
+    center_x[:,6]=center_x[:,6]+center_x[:,7]+center_x[:,8];
+    center_xchu[:,6]=center_xchu[:,6]+center_xchu[:,7]+center_xchu[:,8];
+    center_y[:,6]=center_y[:,6]+center_y[:,7]+center_y[:,8];
+    center_ychu[:,6]=center_ychu[:,6]+center_ychu[:,7]+center_ychu[:,8];    
+    points=[];
+    for i in range(1,7):
+        points.append(torch.cat([center_x[:,i]*1.0/center_xchu[:,i], center_y[:,i]*1.0/center_ychu[:,i]],1));        
+    points=torch.stack(points,dim=1);    
+    return points;
 
 class Interpolate(nn.Module):
     def __init__(self, size, mode):
@@ -216,7 +251,7 @@ class SelectNetWork(torch.nn.Module):
     def forward(self,x_in): 
         #x_out=self.localize_net(x_in);   
         x_out=self.model_res(x_in).view(-1, 6, 2, 3);        
-        activate_tensor = torch.tensor([[[1., 0., 1.],[0., 1., 1.]]], device=self.device,requires_grad=False).repeat((x_in.size()[0],6,1,1))
+        activate_tensor = torch.tensor([[[1., 0., 1.],[0., 1., 1.]]], device=self.device,requires_grad=False).repeat((x_in.size()[0],6,1,1)).detach()
         theta = x_out * activate_tensor;
         return theta;
 
@@ -236,15 +271,15 @@ class ETE_select(torch.nn.Module):
         self.select=SelectNetWork(128,device);        
     def forward(self,stage1_label,sample_size):       
         stage1_label=torch.softmax(stage1_label,dim=1);
-        theta=self.select(stage1_label);#[batch_size,6,2,3]   
-        '''                 
+        theta=self.select(stage1_label);#[batch_size,6,2,3]  
+        '''         
         for i in range(6):
             tmp=(theta[:,i,0,2]+1)/2;
-            tmp=tmp*(sample_size[0]-0.0);
-            theta[:,i,0,2]=-1+2*tmp/(1024.0-0.0);
+            tmp=tmp*(sample_size[0]-1.0);
+            theta[:,i,0,2]=-1+2*tmp/(1024.0-1.0);
             tmp=(theta[:,i,1,2]+1)/2;
-            tmp=tmp*(sample_size[1]-0.0);
-            theta[:,i,1,2]=-1+2*tmp/(1024.0-0.0);        
+            tmp=tmp*(sample_size[1]-1.0);
+            theta[:,i,1,2]=-1+2*tmp/(1024.0-1.0);                        
         '''
         return theta;
     
@@ -259,13 +294,15 @@ class ETE_stage2(torch.nn.Module):
         #self.stage2.append(iCNN_FaceModel(81,2));
         self.stage2.append(iCNN_FaceModel(81,2));
         self.stage2.append(iCNN_FaceModel(81,4));                 
-    def forward(self,image_in,theta):           
-        image_stage2=[]#[6*[batch_size,3,81,81]]
-        for i in range(6):
-            affine_stage2=F.affine_grid(theta[:,i],(image_in.size()[0],3,81,81),align_corners=True);
-            image_stage2.append(F.grid_sample(image_in,affine_stage2,align_corners=True));      
-            
+    def forward(self,image_in,theta):                   
         stage2_label=[];#[6*[batch_size,2/4,81,81]]
+        if (theta!=None):
+            image_stage2=[]#[6*[batch_size,3,81,81]]
+            for i in range(6):
+                affine_stage2=F.affine_grid(theta[:,i],(image_in.size()[0],3,81,81),align_corners=True);
+                image_stage2.append(F.grid_sample(image_in,affine_stage2,align_corners=True));                      
+        else:
+            image_stage2=image_in;
         '''
         for i in range(6):
             stage2_label.append(self.stage2[i](image_stage2[i]));
@@ -275,7 +312,7 @@ class ETE_stage2(torch.nn.Module):
         stage2_label.append(self.stage2[1](image_stage2[2]));
         stage2_label.append(torch.flip(self.stage2[1](torch.flip(image_stage2[3],[3])),[3]));
         stage2_label.append(self.stage2[2](image_stage2[4]));
-        stage2_label.append(self.stage2[3](image_stage2[5]));
+        stage2_label.append(self.stage2[3](image_stage2[5]));        
         
         return stage2_label;
 class EndtoEndModel(torch.nn.Module):

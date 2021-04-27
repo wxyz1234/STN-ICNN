@@ -18,11 +18,13 @@ import pylab
 import time,datetime
 
 from config import batch_size,output_path,epoch_num,loss_image_path,OnServer,UseF1
-from model.model import ETE_stage1,ETE_select,ETE_stage2,label_channel,label_list,make_inverse
+from model.model import ETE_stage1,ETE_select,ETE_stage2,label_channel,label_list,make_inverse,calc_centroid
 from data.loaddata import data_loader_Aug
 
 from tensorboardX import SummaryWriter
-writer = SummaryWriter('./Result')
+import warnings
+warnings.filterwarnings("ignore")
+#writer = SummaryWriter('./Result')
 step_eval=0;
 
 train_data=data_loader_Aug("train",batch_size,"main_stage");
@@ -31,7 +33,7 @@ val_data=data_loader_Aug("val",batch_size,"main_stage");
 
 use_gpu = torch.cuda.is_available()
 if OnServer:
-    device = torch.device("cuda:5" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:6" if torch.cuda.is_available() else "cpu")
 else:
     import matplotlib;matplotlib.use('TkAgg');
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")      
@@ -68,6 +70,7 @@ def train(epoch):
             sample['image']=sample['image'].to(device)            
             sample['label']=sample['label'].to(device)      
             sample['image_org']=sample['image_org'].to(device)   
+            sample['label_org']=sample['label_org'].to(device)  
             sample['size'][0]=sample['size'][0].to(device);
             sample['size'][1]=sample['size'][1].to(device);
         '''
@@ -84,34 +87,62 @@ def train(epoch):
         stage1_label=model_stage1(sample['image'])
         theta=model_select(stage1_label,sample['size'])
         stage2_label=model_stage2(sample['image_org'],theta);
-
+        '''
+        theta_label = torch.zeros((sample['image'].size()[0],6,2,3),device=device,requires_grad=False); #[batch_size,6,2,3]    
+        W=1024.0;
+        H=1024.0;
+        points=torch.floor(calc_centroid(sample['label_org']))  
+        for i in range(6):
+            theta_label[:,i,0,0]=(81.0-1.0)/(W-1.0);
+            theta_label[:,i,1,1]=(81.0-1.0)/(H-1.0);
+            theta_label[:,i,0,2]=-1+2*points[:,i,0]/(W-1.0);
+            theta_label[:,i,1,2]=-1+2*points[:,i,1]/(H-1.0);         
+        parts2=[];
+        parts_label2=[];
+        '''
         parts=[];
         parts_label=[];        
-        loss=[]
+        loss=[]                
+        
         for i in range(6):                 
             affine_stage2=F.affine_grid(theta[:,i],(sample['image'].size()[0],3,81,81),align_corners=True);
             parts.append(F.grid_sample(sample['image_org'],affine_stage2,align_corners=True));
             affine_stage2=F.affine_grid(theta[:,i],(sample['image'].size()[0],label_channel[i],81,81),align_corners=True);
-            parts_label.append(F.grid_sample(sample['label'][:,label_list[i]],affine_stage2,align_corners=True));
-                        
-            parts_label[i][:,0]+=0.00001;  
-            parts_label[i]=parts_label[i].detach();
+            parts_label.append(F.grid_sample(sample['label_org'][:,label_list[i]],affine_stage2,align_corners=True));
             
-            #print(i);
-            #print("FUCK"); 
+            #parts_label[i][:,0]+=0.00001;  
+            #parts_label[i]=parts_label[i].detach();    
             '''
-            for j in range(batch_size):
-                #print(theta[0][i]);             
-                #print(sample['image_org'][j].size());
-                #image3=unloader(np.uint8(sample['label'][j][i].cpu().detach().numpy()))                 
-                image3=transforms.ToPILImage()(parts[i][j].cpu().clone()).convert('RGB')                   
-                plt.imshow(image3)
-                plt.show(block=True)                   
+            print(sample['label_org'][0,label_list[i]])
+            input("pause")
+            '''
+            '''
+            affine_stage2=F.affine_grid(theta_label[:,i],(sample['image'].size()[0],3,81,81),align_corners=True);
+            parts2.append(F.grid_sample(sample['image_org'],affine_stage2,align_corners=True));
+            affine_stage2=F.affine_grid(theta_label[:,i],(sample['image'].size()[0],label_channel[i],81,81),align_corners=True);
+            parts_label2.append(F.grid_sample(sample['label_org'][:,label_list[i]],affine_stage2,align_corners=True));                        
+            parts_label2[i][:,0]+=0.00001;  
+            parts_label2[i]=parts_label2[i].detach();      
+                        
+            for j in range(sample['image'].size()[0]):
                 if (not os.path.exists("./data/trainimg_output/"+train_data.get_namelist()[(k+j)%2000])):
                     os.mkdir("./data/trainimg_output/"+train_data.get_namelist()[(k+j)%2000]);
-                image3.save("./data/trainimg_output/"+train_data.get_namelist()[(k+j)%2000]+'/'+str((k+j)//2000)+'lbl0'+str(i)+'.jpg',quality=100); 
-            '''                
+                image3=transforms.ToPILImage()(sample['image_org'][j].cpu().clone()).convert('RGB')                   
+                image3.save("./data/trainimg_output/"+train_data.get_namelist()[(k+j)%2000]+'/'+str((k+j)//2000)+'_orgimage'+'.jpg',quality=100);    
+                for l in range(9):
+                    image3=transforms.ToPILImage()(sample['label_org'][j][l].cpu().clone()).convert('L')                   
+                    image3.save("./data/trainimg_output/"+train_data.get_namelist()[(k+j)%2000]+'/'+str((k+j)//2000)+str(l)+'_orglabel'+'.jpg',quality=100);
+                
+                image3=transforms.ToPILImage()(parts[i][j].cpu().clone()).convert('RGB')                                
+                image3.save("./data/trainimg_output/"+train_data.get_namelist()[(k+j)%2000]+'/'+str((k+j)//2000)+'lbl0'+str(i)+'_theta'+'.jpg',quality=100);                                 
+                image3=transforms.ToPILImage()(parts_label[i][j][1].cpu()).convert('L')
+                image3.save("./data/trainimg_output/"+train_data.get_namelist()[(k+j)%2000]+'/'+str((k+j)//2000)+'lbl0'+str(i)+'_label'+'.jpg',quality=100);                 
                      
+                image3=transforms.ToPILImage()(parts2[i][j].cpu().clone()).convert('RGB')         
+                image3.save("./data/trainimg_output/"+train_data.get_namelist()[(k+j)%2000]+'/'+str((k+j)//2000)+'lbl0'+str(i)+'_thetalabel'+'.jpg',quality=100);
+                image3=transforms.ToPILImage()(parts_label2[i][j][1].cpu()).convert('L')                
+                image3.save("./data/trainimg_output/"+train_data.get_namelist()[(k+j)%2000]+'/'+str((k+j)//2000)+'lbl0'+str(i)+'_label'+'_thetalabel'+'.jpg',quality=100); 
+            '''
             '''
             print(parts_label[i].size());
             for l1 in range(81):
@@ -133,19 +164,23 @@ def train(epoch):
             input("pause")
             flag=False;
             '''                 
-            
-            loss_tmp=fun.cross_entropy(stage2_label[i],parts_label[i].argmax(dim=1, keepdim=False))                        
+            #print(type(parts_label[i]));  
+            parts_label[i]=parts_label[i].detach();
+            loss_tmp=fun.cross_entropy(stage2_label[i],parts_label[i].argmax(dim=1, keepdim=False))              
             loss.append(loss_tmp);
-        k+=sample['image'].size()[0];
+        k+=sample['image'].size()[0];  
+        #input("wait");
+        
         if (batch_idx%100==0):            
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(sample['image']), len(train_data.get_loader().dataset),
-                100. * batch_idx / len(train_data.get_loader()),np.sum(np.array(loss))))                            
+                100. * batch_idx / len(train_data.get_loader()),torch.sum(torch.stack(loss))))                            
         '''    
         now_time=time.time();
         part1_time+=now_time-prev_time;        
         prev_time=now_time;        
         '''        
+        
         loss=torch.stack(loss)
         loss.backward(torch.ones(6, device=device, requires_grad=False))
         losstmp+=torch.sum(loss).item();
@@ -154,6 +189,7 @@ def train(epoch):
         optimizer_stage2.step();
         optimizer_select.step();
         optimizer_stage1.step();
+        
         '''
         now_time=time.time();
         part2_time+=now_time-prev_time;        
@@ -165,9 +201,9 @@ def train(epoch):
         print("part3_time=",part3_time);     
         '''               
     #print(lossstep);
-    writer.add_scalar('train loss' , losstmp/lossstep, epoch)
+    #input("FUCK")
+    #writer.add_scalar('train loss' , losstmp/lossstep, epoch)
 def test(epoch):
-    input("wait")
     model_stage1.eval();     
     model_select.eval();     
     model_stage2.eval();   
@@ -178,8 +214,9 @@ def test(epoch):
     for sample in val_data.get_loader():
         if (use_gpu):
             sample['image']=sample['image'].to(device)            
-            sample['label']=sample['label'].to(device)  
+            sample['label']=sample['label'].to(device)              
             sample['image_org']=sample['image_org'].to(device)      
+            sample['label_org']=sample['label_org'].to(device)  
             sample['size'][0]=sample['size'][0].to(device);
             sample['size'][1]=sample['size'][1].to(device);                              
         
@@ -190,21 +227,21 @@ def test(epoch):
         step_eval=step_eval+1;
         
         stage1_pred_grid = torchvision.utils.make_grid(stage1_label.argmax(dim=1, keepdim=True))                     
-        writer.add_image("stage1 predict", stage1_pred_grid[0], step_eval, dataformats="HW")        
+        #writer.add_image("stage1 predict", stage1_pred_grid[0], step_eval, dataformats="HW")        
         
         #parts=[];
         parts_label=[];        
         for i in range(6):            
-            #affine_stage2=F.affine_grid(theta[:,i],(sample['image'].size()[0],3,81,81),align_corners=True);
+            #affine_stage2=F.affine_grid(theta[:,i],(sample['image'].size()[0],3,81,81,align_corners=True));
             #parts.append(F.grid_sample(sample['image'],affine_stage2),align_corners=True);
             affine_stage2=F.affine_grid(theta[:,i],(sample['image'].size()[0],label_channel[i],81,81),align_corners=True);
-            parts_label.append(F.grid_sample(sample['label'][:,label_list[i]],affine_stage2,align_corners=True));
-            
+            parts_label.append(F.grid_sample(sample['label_org'][:,label_list[i]],affine_stage2,align_corners=True));
+            #parts_label[i][:,0]+=0.00001;   
+            '''
             parts_label2 = parts_label[i];            
             parts_grid = torchvision.utils.make_grid(parts_label2[:,0].detach().cpu().unsqueeze(dim=1));        
             writer.add_image('croped_parts_%d' % (i), parts_grid[0], step_eval,dataformats='HW')
-            
-            parts_label[i][:,0]+=0.00001;           
+            '''                   
             test_loss+=fun.cross_entropy(stage2_label[i],parts_label[i].argmax(dim=1, keepdim=False)).data;    
 
             '''
@@ -227,10 +264,11 @@ def test(epoch):
                 print();
             input("pause")
             '''
+            '''
             stage2_label2=stage2_label[i].argmax(dim=1, keepdim=True);
             final_grid = torchvision.utils.make_grid(stage2_label2[:,0].detach().cpu().unsqueeze(dim=1))
             writer.add_image("final_predict_%d" %(i), final_grid[0], global_step=step_eval,dataformats='HW')
-            
+            '''
             output_2 = torch.softmax(stage2_label[i], dim=1).argmax(dim=1, keepdim=False)
             output_2=output_2.cpu().clone()
             target_2 = parts_label[i].argmax(dim=1, keepdim=False)
@@ -262,7 +300,7 @@ def test(epoch):
     print('\nTest set: {} Cases，F1 Score: {:.4f}\n'.format(
         len(test_data.get_loader().dataset),f1score))
         
-    writer.add_scalar('test loss' , test_loss.data.cpu().numpy(), epoch)
+    #writer.add_scalar('test loss' , test_loss.data.cpu().numpy(), epoch)
     loss_list.append(test_loss.data.cpu().numpy());
     f1_list.append(f1score);
     if (UseF1):
@@ -280,10 +318,16 @@ def test(epoch):
             torch.save(model_select,"./BestNet_select")
             torch.save(model_stage2,"./BestNet_stage2")
 def printoutput():
-    model_stage1=torch.load("./BestNet_stage1",map_location="cpu")
-    model_select=torch.load("./BestNet_select",map_location="cpu")
-    model_stage2=torch.load("./BestNet_stage2",map_location="cpu")
-    #model_stage2=torch.load("./Netdata_stage2",map_location="cpu")
+    CheckBest=True;
+    if (CheckBest):
+        model_stage1=torch.load("./BestNet_stage1",map_location="cpu")
+        model_select=torch.load("./BestNet_select",map_location="cpu")
+        model_stage2=torch.load("./BestNet_stage2",map_location="cpu")
+    else:
+        model_stage1=torch.load("./Netdata_stage1",map_location="cpu")
+        model_select=torch.load("./Netdata_select",map_location="cpu")
+        model_stage2=torch.load("./Netdata_stage2",map_location="cpu")
+        
     model_select.select.change_device(device);
     if (use_gpu):
         model_stage1=model_stage1.to(device)
@@ -297,6 +341,7 @@ def printoutput():
             sample['image']=sample['image'].to(device)            
             sample['label']=sample['label'].to(device)
             sample['image_org']=sample['image_org'].to(device)  
+            sample['label_org']=sample['label_org'].to(device)  
             sample['size'][0]=sample['size'][0].to(device);
             sample['size'][1]=sample['size'][1].to(device);
                       
@@ -313,9 +358,14 @@ def printoutput():
                 os.makedirs(path);                
             image=sample['image_org'][i].cpu().clone();                
             image =unloader(image)
-            image.save(path+'/'+test_data.get_namelist()[k]+'.jpg',quality=100);                
-            image_crop=image.crop([0, 0, int(sample['size'][0][i].data), int(sample['size'][1][i].data)])
-            image_crop.save(path+'/'+test_data.get_namelist()[k]+'_org'+'.jpg',quality=100);    
+            image.save(path+'/'+test_data.get_namelist()[k]+'.jpg',quality=100);       
+            
+            for l in range(9):
+                image3=transforms.ToPILImage()(sample['label_org'][i][l].cpu().clone()).convert('L')                   
+                image3.save(path+'/'+test_data.get_namelist()[k]+'_'+str(l)+'_orglabel'+'.jpg',quality=100);
+                
+            #image_crop=image.crop([0, 0, int(sample['size'][0][i].data), int(sample['size'][1][i].data)])
+            #image_crop.save(path+'/'+test_data.get_namelist()[k]+'_org'+'.jpg',quality=100);    
             '''
             for j in range(6):
                 tmp=torch.zeros(label_channel[j],81,81).scatter_(0,stage2_label[j][i].argmax(dim=0).unsqueeze(0).cpu(),255);
@@ -323,6 +373,13 @@ def printoutput():
                     image3=unloader(np.uint8(tmp[l].cpu()));
                     image3.save(path+'/'+'stage2_'+test_data.get_namelist()[k]+'lbl0'+str(j)+str(l)+'.jpg',quality=100);  
             '''
+            parts=[];                    
+            for j in range(6):
+                affine_stage2=F.affine_grid(theta[i,j].unsqueeze(0),(1,3,81,81),align_corners=True);
+                parts.append(F.grid_sample(sample['image_org'][i].unsqueeze(0),affine_stage2,align_corners=True));
+                parts[j]=TF.to_pil_image(parts[j].squeeze(0).cpu());
+                parts[j].save(path+'/'+test_data.get_namelist()[k]+'lbl0'+str(j)+'_CropedImage.jpg',quality=100);
+                
             final_label=[];#[8*[1,1,s0,s1]]            
             for j in range(6):
                 affine_stage2_inv=F.affine_grid(theta_inv[i,j].unsqueeze(0),(1,1,1024,1024),align_corners=True);
@@ -346,24 +403,27 @@ def printoutput():
                         
             for j in range(9):                                
                 image3=unloader(np.uint8(image[j].numpy()))
-                image_crop=image3.crop([0, 0, int(sample['size'][0][i].data), int(sample['size'][1][i].data)])
+                image_crop=image3;
+                #image_crop=image3.crop([0, 0, int(sample['size'][0][i].data), int(sample['size'][1][i].data)])
                 image_crop.save(path+'/'+test_data.get_namelist()[k]+'lbl0'+str(j)+'.jpg',quality=100);
                 #image3.save(path+'/'+test_data.get_namelist()[k]+'lbl0'+str(j)+'.jpg',quality=100);         
                                                  
-            label_list=sample['label'][i].cpu().clone();#[9,s0,s1]            
+            label_list=sample['label_org'][i].cpu().clone();#[9,s0,s1]            
             label_list = torch.softmax(label_list, dim=0).argmax(dim=0, keepdim=True)#[1,s0,s1]            
-            label_list=torch.zeros(9,1024,1024).scatter_(0, label_list, 255)#[9,s0,s1]                          
+            label_list=torch.zeros(9,1024,1024).scatter_(0, label_list, 255)#[9,s0,s1]          
+            '''                
             for j in range(9):                                
                 image3=unloader(np.uint8(label_list[j].numpy()))
+                image_crop=image3;
                 image_crop=image3.crop([0, 0, int(sample['size'][0][i].data), int(sample['size'][1][i].data)])
                 image_crop.save(path+'/label_'+test_data.get_namelist()[k]+'lbl0'+str(j)+'_label'+'.jpg',quality=100);
                 #image3.save(path+'/'+test_data.get_namelist()[k]+'lbl0'+str(j)+'.jpg',quality=100); 
-
+            '''
                 
             k+=1
             if (k>=test_data.get_len()):break    
         output=torch.stack(output);
-        target2=sample['label'].cpu().clone();             
+        target2=sample['label_org'].cpu().clone();             
         target2=torch.softmax(target2,dim=1).argmax(dim=1, keepdim=False);          
         output2=output.cpu().clone(); 
         output2=output2.argmax(dim=1, keepdim=False);  
@@ -537,6 +597,7 @@ if UseHerit:
 else:
     model_stage1=torch.load("./preBestNet_stage1",map_location=device)
     model_select=torch.load("./preBestNet_select",map_location=device)
+    model_stage2=torch.load("./preBestNet_stage2",map_location=device)
 
 print("use_gpu=",use_gpu)
 if (use_gpu):    
@@ -546,7 +607,7 @@ if (use_gpu):
 model_select.select.change_device(device);
 
 optimizer_stage1=optim.Adam(model_stage1.parameters(),lr=0) 
-optimizer_select=optim.Adam(model_select.parameters(),lr=0) 
+optimizer_select=optim.Adam(model_select.parameters(),lr=1e-7) 
 optimizer_stage2=optim.Adam(model_stage2.parameters(),lr=1e-3) 
 scheduler_stage1=optim.lr_scheduler.StepLR(optimizer_stage1, step_size=5, gamma=0.5)       
 scheduler_select=optim.lr_scheduler.StepLR(optimizer_select, step_size=5, gamma=0.5)       
@@ -555,7 +616,8 @@ scheduler_stage2=optim.lr_scheduler.StepLR(optimizer_stage2, step_size=5, gamma=
 #check();
 
 plttitle="EndtoEndModel";
-Training=True;
+Training=OnServer;
+#Training=True;
 if Training:
     for epoch in range(epoch_num):
         x_list.append(epoch);
@@ -576,3 +638,4 @@ if Training:
     makeplt("plttitle");
 if (not OnServer):
     printoutput()  
+print("FINISH!");
